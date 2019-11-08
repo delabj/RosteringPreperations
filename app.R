@@ -26,6 +26,8 @@ ui <- navbarPage("Rostering Preperation",
                  ## right now this has file options, I may move those to the prep page. 
                  tabPanel("Upload", 
                           titlePanel("Uploading Files"),
+                          uiOutput("warningTitle"),
+                          uiOutput("variableType"),
                           sidebarLayout(
                               sidebarPanel(
                                   fileInput("file1", "Choose CSV File",
@@ -34,7 +36,7 @@ ui <- navbarPage("Rostering Preperation",
                                                        "text/comma-separated-values,text/plain",
                                                        ".csv")),
                                   selectInput("rosterType", "Choose a roster to prep",
-                                              choices = c("IHT", "HMH (Gov/Hist)", "cars")),
+                                              choices = c("None","IHT", "HMH (Gov/Hist)", "Waterford")),
                                   uiOutput("schoolSelectIHT"),
                                   uiOutput("teacherSelect"),
                                   uiOutput("periodSelect"),
@@ -86,7 +88,8 @@ server <- function(input, output) {
         read.csv(infile$datapath,
                  header = input$header,
                  sep = ",",
-                 quote = '"')
+                 quote = '"', 
+                 stringsAsFactors=FALSE)
     })
     
     ## Show Uploaded Data
@@ -250,7 +253,61 @@ server <- function(input, output) {
                 return(CLASSASSIGNMENTS)
             }
             else{return(NULL)}
-            }
+        }
+        else if (input$rosterType =="Waterford"){
+          df <- filedata() 
+          
+          df %>%
+            filter(str_detect(student_calendarName, pattern="18-19"))%>%
+            distinct(student_studentNumber, .keep_all = T)%>%
+            mutate(student_grade = replace(student_grade, student_grade=="KF", "K"))%>%
+            mutate(student_grade = replace(student_grade, student_grade=="01", "1st Grade")) %>%
+            mutate(student_grade = replace(student_grade, student_grade=="02", "2nd Grade"))%>%
+            mutate("firstName" = gsub(" ","", str_remove_all(student_firstName, "[~!@#$%^&*(){}_+:<>?,./;'-]")))%>%
+            mutate("middleName" = gsub(" ","", str_remove_all(student_middleName, "[~!@#$%^&*(){}_+:<>?,./;'-]")))%>%
+            mutate("lastName" = gsub(" ","", str_remove_all(student_lastName, "[~!@#$%^&*(){}_+:<>?,./;'-]")))%>%
+            mutate("preferredName" = gsub(" ","",str_remove_all(coalesce(student_alias, firstName), "[~!@#$%^&*(){}_+:<>?,./;'-]")))%>%
+            mutate("classGrade"=student_grade)%>%
+            mutate("schoolName"=substr(student_calendarName, 6,100000))%>%
+            add_column("sisName"=NA,
+                       "sisID"=NA,
+                       "schoolSISName"=NA,
+                       "schoolSISID"=NA,
+                       "pLanguage"=NA,
+                       "Ethnicity"=NA,
+                       "Disabilities"=NA,
+                       "hStatus"=NA,
+                       "sp"=NA,
+                       "Email"=NA,
+                       "Username"=NA,
+                       "Password"=NA)%>%
+            select("First Name"=firstName,
+                   "Middle Name"=middleName,
+                   "Last Name"=lastName,
+                   #"Prefered Name"=preferredName,
+                   "Unique Student ID"=student_studentNumber,
+                   "Grade"= student_grade,
+                   "Class Name"= student_homeroomTeacher,
+                   "Class Grade"= classGrade,
+                   "Class SIS NAME"=sisName,
+                   "Class SIS ID" = sisID,
+                   "School Name" = schoolName,
+                   "School SIS NAME"= schoolSISName,
+                   "School SIS ID" = schoolSISID,
+                   "Gender"=student_gender,
+                   "Birthday"= student_birthdate,
+                   "Primary Language"= pLanguage,
+                   Ethnicity,
+                   Disabilities,
+                   "Household Status"= hStatus,
+                   "Special Programs"=sp,
+                   Email,
+                   Username,
+                   Password
+            ) -> waterford
+          
+          return(waterford)
+        }
             
         else{return(NULL)}
         
@@ -281,6 +338,7 @@ server <- function(input, output) {
     output$schoolSelectIHT <- renderUI({
         
         if(fileReady()==F){return(NULL)}
+        if(FileCorrect()==F){return(NULL)}
         
         
         if(input$rosterType == "IHT"){ 
@@ -296,17 +354,20 @@ server <- function(input, output) {
     output$teacherSelect <- renderUI({
         
         if(fileReady()==F){return(NULL)}
+        if(FileCorrect()==F){return(NULL)}
+        
         
         
         ##This gets the list of teachers
-        df <-filedata() %>% 
+        
+        
+        if(input$rosterType == "IHT"){ 
+          df <-filedata() %>% 
             as_tibble() %>%
             distinct(student_studentNumber, .keep_all = T)%>%
             mutate(student_grade = replace(student_grade, student_grade=="KF", "K"))%>%
             mutate(courseSection_teacherDisplay = str_replace_all(courseSection_teacherDisplay, ",","-")) %>%
             separate(courseSection_teacherDisplay, into = c("peTeach", "elemteach"),  sep="-", extra="drop")
-        
-        if(input$rosterType == "IHT"){ 
             
             if (is.null(df)){return(NULL)} 
             if (input$SchoolDropdown != "Elementary")  return(NULL)  
@@ -323,6 +384,8 @@ server <- function(input, output) {
     output$periodSelect <- renderUI({
         
         if(fileReady()==F){return(NULL)}
+        if(FileCorrect()==F){return(NULL)}
+        
         
         
       
@@ -346,6 +409,22 @@ server <- function(input, output) {
             
         }
         else{return(NULL)}
+    })
+    
+    output$warningTitle <- renderUI({
+        if(fileReady()==F){return(NULL)}
+        if(input$rosterType=="None" ){
+            
+        }
+        else{
+            if(FileCorrect()==F){
+                titlePanel("MISSING ROWS")
+            }  
+            else{
+                titlePanel("All Rows Present")
+            }
+        }
+        
     })
     
     ## renders the title for output page
@@ -372,6 +451,8 @@ server <- function(input, output) {
     output$hmhFileOptions <- renderUI({
         
         if(fileReady()==F){return(NULL)}
+        if(FileCorrect()==F){return(NULL)}
+        
         
         if(input$rosterType == "HMH (Gov/Hist)"){
             items=c("Class", "Users", "Class Assignments")
@@ -381,6 +462,8 @@ server <- function(input, output) {
         
     })
     
+    
+
    #### ERROR CHECKING ####
     
     ## is there a file ready and waiting?
@@ -391,6 +474,77 @@ server <- function(input, output) {
             return(FALSE)
         }
         return(TRUE)
+    })
+    
+    FileCorrect <- reactive ({
+        if(fileReady()==F){return(NULL)}
+        
+        
+        if(input$rosterType == "IHT"){
+            check <- c("student_grade", #
+                       "student_homeroomTeacher", #
+                       "student_studentNumber", #       
+                       "student_lastName", #
+                       "student_firstName", #
+                       "student_gender",# 
+                       "student_birthdate", #
+                       "student_calendarName", #
+                       "courseSection_teacherDisplay", #
+                       "roster_endDate",
+                       "sectionSchedule_periodStart", #
+                       "sectionSchedule_scheduleStart", #
+                       "contacts_email", #
+                       "function_IHTClassName"#   
+                       )
+            
+            
+            test <- check %in% names(filedata())
+            
+            if(all(test)==T){return(T)}
+            else{return(F)}
+        }
+        else if(input$rosterType== "HMH (Gov/Hist)"){
+            check <- c("student_firstName",
+                       "student_lastName",
+                       "student_grade",
+                       "student_stateID",
+                       "courseSection_courseID",
+                       "student_endDate",
+                       "courseSection_courseNumber",
+                       "roster_endDate",
+                       "courseSection_teacherDisplay",
+                       "student_studentNumber",
+                       "courseSection_sectionNumber",
+                       "courseSection_courseName",
+                       "sectionSchedule_periodStart",
+                       "cal_endYear")
+            
+            test <- check %in% names(filedata())
+            
+            if(all(test)==T){return(T)}
+            else{return(F)}
+            
+        }
+        else if(input$rosterType=="Waterford"){
+          check <- c("student_firstName",
+                     "student_middleName", 
+                     "student_lastName", 
+                     "student_alias", 
+                     "student_studentNumber", 
+                     "student_grade",
+                     "student_gender",
+                     "student_birthdate",
+                     "student_calendarName",
+                     "student_homeroomTeacher")
+          test <- check %in% names(filedata())
+          
+          if(all(test)==T){return(T)}
+          else{return(F)}
+        }
+        else{
+            return(F)
+            }
+      
     })
 
 }
